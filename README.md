@@ -1,27 +1,14 @@
 # ArUcoDetect
 Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect camera and python
 
-[Detecting 2 ArUco Markers](https://youtu.be/kOELEBrRaDs)
-[Detecting 36 ArUco Markers at once](https://www.youtube.com/watch?v=2GhBSx3AGbs)
+##Detecting 36 ArUco Markers at once
+[![36arucomarkers](https://user-images.githubusercontent.com/69029439/145345155-42cf6e59-362b-4590-83e3-0d8060cb20a1.png)](https://www.youtube.com/watch?v=2GhBSx3AGbs)
 
-### Motivation
+## [What is ArUco Marker?](https://www.pyimagesearch.com/2020/11/02/apriltag-with-python/)
 
-When the manipulator serves the food to the serving robot, the manipulator should be informed with the robot's position in a great precision. However, since the localization has been done through SLAM, its position data is not that precise (error up to 10cm).
+### Architecture
 
-Therefore, we try to implement ArUco, from which we can accurately know the exact pose (x,y,z) frame and transformation matrix from the camera frame. If the ArUco tag is applied to the robot, we can accurately get the robot's position data.
-
-### Objectives
-
-Write a python script that brings the exact pose of the ArUco tag.
-
-- camera intrinsic
-- images (streaming)
-
-Output: 
-
-- marker ids
-- marker poses (2 markers)
-- image with frames drawn
+![MarkerDetectionSchematic](https://user-images.githubusercontent.com/69029439/145345287-5f7026e9-ad39-4392-8109-914ee2239d9e.png)
  
 
 ### Prerequisites (Installations and Dependencies)
