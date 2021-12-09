@@ -1,4 +1,4 @@
-# ArUcoDetect
+# ArUcoROSpy
 Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect camera and python
 
 ##Detecting 36 ArUco Markers at once
