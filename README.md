@@ -2,9 +2,9 @@
 Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect camera and python
 
 ##Detecting 36 ArUco Markers at once
-[![36arucomarkers](https://user-images.githubusercontent.com/69029439/145345155-42cf6e59-362b-4590-83e3-0d8060cb20a1.png)](https://www.youtube.com/watch?v=2GhBSx3AGbs)
+[![MarkerDetectionSchematic](https://user-images.githubusercontent.com/69029439/145345463-16968ec3-9bd3-415f-8cef-fd9e581c0281.jpg)](https://www.youtube.com/watch?v=2GhBSx3AGbs)
 
-## [What is ArUco Marker?](https://www.pyimagesearch.com/2020/11/02/apriltag-with-python/)
+### [What is ArUco Marker?](https://www.pyimagesearch.com/2020/11/02/apriltag-with-python/)
 
 ### Architecture
 
