@@ -75,6 +75,6 @@ Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect 
 
 ## 2. Run ArucoDetect.py
 
-    ```bash
+    
     python /path/to/your/python/script/arucodetect.py
-    ```
+    
