@@ -36,11 +36,8 @@ Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect 
 ### Dependencies info
 
 - [Intel Realsense ROS](http://wiki.ros.org/realsense_camera)
-    
 - [Azure Kinect ROS Topic](https://github.com/microsoft/Azure_Kinect_ROS_Driver/blob/melodic/docs/usage.md)
-    
 - [Opencv ArUco](https://docs.opencv.org/4.x/d9/d6a/group__aruco.html#gab9159aa69250d8d3642593e508cb6baa)
-- 
 - [cv_bridge](https://wiki.ros.org/cv_bridge)
 
         
