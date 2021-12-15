@@ -13,7 +13,7 @@ import cv2.aruco as aruco
 
 
 class ImageConverter(object):
-    def __init__(self):
+    def __init__(self, marker_id = None):
         self.bridge = CvBridge()
         # We will get pose from 2 markers; id '35' and '43'
         self.pose_35 = Pose()
@@ -148,9 +148,9 @@ class ImageConverter(object):
         self.pose[index].orientation.w = quat[3]
 
 def main():
-    print("Initializing ROS-node")
+    rospy.loginfo("Starting ArUco node")
     rospy.init_node('detect_markers', anonymous=True)
-    print("Bring the aruco-ID in front of camera")
+
     ImageConverter()
     rospy.sleep(1)
     rospy.spin()
