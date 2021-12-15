@@ -48,7 +48,7 @@ class ImageConverter(object):
 
         # We will get pose from 2 markers; id '35' and '43'
         self.marker_pose_list = PoseArray()
-        self.marker_ids = []
+        self.marker_transforms = {}
         # ROS Publisher
         self.tf_brodcaster = tf.TransformBroadcaster()
         self.tf_listener = tf.TransformListener
@@ -148,7 +148,42 @@ class ImageConverter(object):
         return marker_pose
 
     def find_transforms(self, id_main = 1):
-        pose_combinations = list(itertools.combinations(self.detected_ids, 2))
+        marker_pose_list = self.marker_pose_list
+        detected_ids = self.detected_ids
+        pose_combinations = list(itertools.combinations(detected_ids, 2))
+
+        for combination in pose_combinations:
+            pose_0 = marker_pose_list[combination[0]]
+            pose_1 = marker_pose_list[combination[1]]
+
+            # Find the transform between the two markers
+            rotation_0 = np.array([pose_0.orientation.x, pose_0.orientation.y, pose_0.orientation.z, pose_0.orientation.w])
+            translation_0 = np.array([pose_0.position.x, pose_0.position.y, pose_0.position.z])
+            rotation_0_eul = tf.transformations.euler_from_quaternion(rotation_0)
+            tf_matrix_0 = tf.transformations.compose_matrix(
+                translation=translation_0, rotation=rotation_0_eul)
+
+            rotation_1 = np.array([pose_1.orientation.x, pose_1.orientation.y, pose_1.orientation.z, pose_1.orientation.w])
+            translation_1 = np.array([pose_1.position.x, pose_1.position.y, pose_1.position.z])
+            rotation_1_eul = tf.transformations.euler_from_quaternion(rotation_1)
+            tf_matrix_1 = tf.transformations.compose_matrix(
+                translation=translation_1, rotation=rotation_1_eul)
+
+            tf_matrix_0_inv = tf.transformations.inverse_matrix(tf_matrix_0)
+            tf_matrix_1_inv = tf.transformations.inverse_matrix(tf_matrix_1)
+            
+            tf_0_to_1 = np.matmul(tf_matrix_0_inv,tf_matrix_1)
+            _, _, angles, trans, _ = tf.transformations.decompose_matrix(tf_0_to_1)
+            
+            if combination in self.marker_transforms.keys(): 
+                average_translation = np.sum(0.99*self.marker_transforms[combination][0],0.01* np.array(trans))
+                average_rotation = np.sum(
+                    0.99*self.marker_transforms[combination][1], 0.01 * np.array(trans))
+                self.marker_transforms[combination][0] = average_translation
+                self.marker_transforms[combination][1] = average_rotation
+                
+            elif combination[::-1] in self.marker_transforms.keys():
+            
         
 
 def main():
