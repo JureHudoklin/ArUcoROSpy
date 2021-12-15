@@ -1,34 +1,22 @@
+#!/usr/bin/env python
+
+from logging import raiseExceptions
+import rospy
 import cv2
 import numpy as np
 import imutils
 import argparse
-import rospy
+import itertools
+import tf
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CameraInfo
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseArray
 from cv_bridge import CvBridge, CvBridgeError
 import cv2.aruco as aruco
 
-
-
-class ImageConverter(object):
-    def __init__(self, marker_id = None):
-        self.bridge = CvBridge()
-        # We will get pose from 2 markers; id '35' and '43'
-        self.pose_35 = Pose()
-        self.pose_43 = Pose()
-        self.pose = [self.pose_35,self.pose_43]
-        # ROS Publisher
-        self.image_pub = rospy.Publisher("/detected_markers",Image, queue_size=1)
-        self.id_pub    = rospy.Publisher("/ArUco_ID", String, queue_size=1)
-        self.pose_35_pub = rospy.Publisher("/marker_pose/35", Pose, queue_size=1)
-        self.pose_43_pub = rospy.Publisher("/marker_pose/43", Pose, queue_size=1)
-        # ROS Subscriber
-        self.image_sub = rospy.Subscriber("/rgb/image_raw", Image, self.img_cb)
-        self.info_sub  = rospy.Subscriber("/rgb/camera_info", CameraInfo, self.info_cb)
-        # Names of each possible ArUco tag OpenCV supports
-        self.ARUCO_DICT = {
+# Names of each possible ArUco tag OpenCV supports
+ARUCO_DICT = {
         "DICT_4X4_50": aruco.DICT_4X4_50,
         "DICT_4X4_100": aruco.DICT_4X4_100,
         "DICT_4X4_250": aruco.DICT_4X4_250,
@@ -50,6 +38,23 @@ class ImageConverter(object):
         "DICT_APRILTAG_25h9": aruco.DICT_APRILTAG_25h9,
         "DICT_APRILTAG_36h10": aruco.DICT_APRILTAG_36h10,
         "DICT_APRILTAG_36h11": aruco.DICT_APRILTAG_36h11 }
+
+class ImageConverter(object):
+    def __init__(self, marker_type, marker_size):
+        self.bridge = CvBridge()
+        # Settings
+        self.marker_type = marker_type
+        self.marker_size = marker_size
+
+        # We will get pose from 2 markers; id '35' and '43'
+        self.marker_pose_list = PoseArray()
+        self.marker_ids = []
+        # ROS Publisher
+        self.tf_brodcaster = tf.TransformBroadcaster()
+        self.tf_listener = tf.TransformListener
+        # ROS Subscriber
+        self.image_sub = rospy.Subscriber("/image_raw", Image, self.img_cb)
+        self.info_sub  = rospy.Subscriber("/camera_info", CameraInfo, self.info_cb)
         
     def img_cb(self, msg): # Callback function for image msg
         try:
@@ -60,99 +65,108 @@ class ImageConverter(object):
         except CvBridgeError as e:
             print(e)
             
-        markers_img, ids_list = self.detect_aruco(self.color_img)
-
-        if ids_list is None:
-            self.id_pub.publish(ids_list)
-        else:
-            ids_str = ''.join(str(e) for e in ids_list)
-            # Publish id msg
-            self.id_pub.publish(ids_str)
-        try:
-            # Publish image msg
-            self.image_pub.publish(self.bridge.cv2_to_imgmsg(markers_img, "bgr8"))
-            # Publish pose msg
-            self.pose_35_pub.publish(self.pose_35)
-            self.pose_43_pub.publish(self.pose_43)
-        except CvBridgeError as e:
-            print(e)
+        markers_img, marker_pose_list, id_list = self.detect_aruco(self.color_img)
+        self.merkers_img = markers_img
+        self.marker_pose_list = marker_pose_list
+        self.detected_ids = id_list
 
     def info_cb(self, msg): 
         self.K = np.reshape(msg.K,(3,3))    # Camera matrix
         self.D = np.reshape(msg.D,(1,8))[0] # Distortion matrix. 5 for IntelRealsense, 8 for AzureKinect
 
-    def args(self):
-        ap = argparse.ArgumentParser()
-        ap.add_argument("-t", "--type", type=str,default="DICT_6X6_100", help="type of ArUCo tag to detect")
-        ap.add_argument("-l", "--length", type=float, default="0.05", help="length of the marker in meters")
-        arguments = vars(ap.parse_args())
-        return arguments
-
     def detect_aruco(self,img):
+        """
+        Given an RDB image detect aruco markers. 
+        ----------
+        Args:
+            img -- RBG image
+        ----------
+        Returns:
+            image_with_aruco -- image with aruco markers
+            marker_pose_list {PoseArray} -- list of poses of the detected markers
+        """
       
         # Create parameters for marker detection
-        args = self.args()
-        aruco_dict = aruco.Dictionary_get(self.ARUCO_DICT[args["type"]])
+        aruco_dict = aruco.Dictionary_get(ARUCO_DICT[self.marker_type])
         parameters = aruco.DetectorParameters_create()
 
         # Detect aruco markers
         corners,ids, _ = aruco.detectMarkers(img, aruco_dict, parameters = parameters)
                
+        marker_pose_list = PoseArray()
+        id_list = []
         if len(corners) > 0:
-            markerLength = args["length"]
+            markerLength = self.marker_size
             cameraMatrix = self.K 
             distCoeffs   = self.D
 
             # For numerous markers:
-            for num in range(len(corners)):
+            for i, marker_id in enumerate(ids):
                 # Draw bounding box on the marker
-                img = aruco.drawDetectedMarkers(img, [corners[num]], ids[num])  
+                img = aruco.drawDetectedMarkers(img, [corners[i]], marker_id)
+
                 # Outline marker's frame on the image
-                rvec,tvec,_ = aruco.estimatePoseSingleMarkers([corners[num]],markerLength,cameraMatrix,distCoeffs)
-                output = aruco.drawAxis(img, cameraMatrix, distCoeffs, rvec, tvec, 0.1)
+                rvec,tvec,_ = aruco.estimatePoseSingleMarkers([corners[i]],markerLength,cameraMatrix,distCoeffs)
+                output_img = aruco.drawAxis(img, cameraMatrix, distCoeffs, rvec, tvec, 0.1)
+                
                 # Convert its pose to Pose.msg format in order to publish
-                if ids.flatten()[num] == 35:
-                    self.make_pose(35,rvec,tvec)
-                if ids.flatten()[num] == 43:
-                    self.make_pose(43,rvec,tvec)
+                marker_pose = self.make_pose(id, rvec, tvec)
+                marker_pose_list.poses.append(marker_pose)
+                id_list.append(id)
+
         else:
-            output = img
+            output_img = img
     
-        return output, ids
-
-    def eul2quat(self, roll, pitch, yaw):
-
-        qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-        qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
-        qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
-        qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-        
-        return [qx, qy, qz, qw]
+        return output_img, marker_pose_list, id_list
 
     def make_pose(self,id,rvec,tvec):
+        """
+        Given a marker id, euler angles and a translation vector, returns a Pose.
+        ----------
+        Args:
+            id {int} -- id of the marker
+            rvec {np.array} -- euler angles of the marker
+            tvec {np.array} -- translation vector of the marker
+        ----------
+        Returns:
+            Pose -- Pose of the marker
+        """
 
-        if id == 35:
-            index = 0
-        if id == 43:
-            index = 1
+        marker_pose = Pose()
 
         quat = self.eul2quat(rvec.flatten()[0],rvec.flatten()[1],rvec.flatten()[2])
 
-        self.pose[index].position.x = tvec.flatten()[0]
-        self.pose[index].position.y = tvec.flatten()[1]
-        self.pose[index].position.z = tvec.flatten()[2]
+        marker_pose.position.x = tvec.flatten()[0]
+        marker_pose.position.y = tvec.flatten()[1]
+        marker_pose.position.z = tvec.flatten()[2]
 
-        self.pose[index].orientation.x = quat[0]
-        self.pose[index].orientation.y = quat[1]
-        self.pose[index].orientation.z = quat[2]
-        self.pose[index].orientation.w = quat[3]
+        marker_pose.orientation.x = quat[0]
+        marker_pose.orientation.y = quat[1]
+        marker_pose.orientation.z = quat[2]
+        marker_pose.orientation.w = quat[3]
+
+        return marker_pose
+
+    def find_transforms(self, id_main = 1):
+        pose_combinations = list(itertools.combinations(self.detected_ids, 2))
+        
 
 def main():
     rospy.loginfo("Starting ArUco node")
-    rospy.init_node('detect_markers', anonymous=True)
+    rospy.init_node('aruco_marker_detect', anonymous=True)
 
-    ImageConverter()
-    rospy.sleep(1)
+    aruco_type = rospy.get_param("~aruco_type", "DICT_6X6_100")
+    aruco_length = rospy.get_param("~aruco_length", "0.05")
+    aruco_find_transform = rospy.get_param("~aruco_find_transform", "True")
+
+    ImageConverter(aruco_type, aruco_length)
+
+    rospy.init_node('Aruco detection started!', anonymous=True)
+
+    while rospy.is_shutdown():
+        if aruco_find_transform:
+            ImageConverter.find_transforms()
+    rospy.Rate(10)
     rospy.spin()
 
 if __name__ == '__main__':
