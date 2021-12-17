@@ -1,7 +1,7 @@
 <launch>
-  <node name="aruco_node" pkg="aruco_detect" type="aruco_node.py" output="screen" >
+  <node name="aruco_marker_detect" pkg="aruco_detect" type="aruco_node.py" output="screen" >
     <param name="aruco_type" type="str" value="DICT_6X6_100" />
-    <param name="aruco_length" type="float" value="0.05" />
-    <param name="aruco_find_transform" type="bool" value="False" />
+    <param name="aruco_length" type="double" value="0.1" />
+    <param name="aruco_find_transform" type="bool" value="True" />
   </node>
 </launch>
