@@ -57,6 +57,7 @@ Detect a set of aruco markers to estimate a pose of an object. Transforms betwee
     roslaunch realsense2_camera rs_camera.launch
     ```
     
+    
 - Azure Kinect ROS
     
     **Run the built-in Azure Kinect program to see the camera's current state**
@@ -72,14 +73,16 @@ Detect a set of aruco markers to estimate a pose of an object. Transforms betwee
     ```
 
 ## 2. Run ArucoDetect.py
+In the launch file the following parameters may be set:
+- aruco_type {str}: Type of the aruco marker (default: "DICT_6X6_100")
+- aruco_size {double}: Size of the aruco markers in meters (default: "0.1")
+- aruco_transforms {str}: A path to the .npz file containing the transforms between markers. If not provided calibration needs to be done at launch.
 
-    ```bash
-    roslaunch aruco_detect arcode_launch.launch
-    ```
+```bash
+roslaunch aruco_detect arcode_launch.launch
+```
 
-    In the launch file the following parameters may be set:
-    - aruco_type {str}: Type of the aruco marker (default: "DICT_6X6_100")
-    - aruco_size {double}: Size of the aruco markers in meters (default: "0.1")
-    - aruco_transforms {str}: A path to the .npz file containing the transforms between markers. If not provided calibration needs to be done at launch.
+
+    
     
     
