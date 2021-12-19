@@ -2,6 +2,6 @@
   <node name="aruco_marker_detect" pkg="aruco_detect" type="aruco_node.py" output="screen" >
     <param name="aruco_type" type="str" value="DICT_6X6_100" />
     <param name="aruco_length" type="double" value="0.1" />
-    <param name="aruco_find_transform" type="bool" value="True" />
+    <param name="aruco_transforms" type="str" value="/home/jure/catkin_ws/src/aruco_detect/src/marker_transforms.npz" />
   </node>
 </launch>

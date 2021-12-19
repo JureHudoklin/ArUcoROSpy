@@ -52,17 +52,22 @@ class ImageConverter(object):
         self.marker_transform_file = marker_transform_file
 
         # We will get pose from 2 markers; id '35' and '43'
-        self.marker_pose_list = PoseArray()
 
-        self.marker_transforms_list = []
-        self.marker_id_list = []
-        self.marker_pose_list = []
-        self.detected_ids = []
+        #--- Used when finding transforms between markers ----#
+        self.marker_transforms_list = [] # Transformations between markers
+        self.marker_id_list = [] # Ids of markers 
+        #-----------------------------------------------------#
 
+        #---- Markers detected at each camera frame ----#
+        self.marker_pose_list = PoseArray() # Poses of markers in camera frame
+        self.detected_ids = [] # Coresponding detected ids
+        #----------------------------------------------#
+
+        #---- Used at prediction time ----#
         self.obj_transform = Pose()
-
         if not marker_transform_file is None:
             self.marker_transforms = self.load_marker_transform(marker_transform_file)
+        #--------------------------------#
 
         # ROS Publisher
         self.aruco_pub = rospy.Publisher("aruco_img", Image, queue_size=10)
@@ -73,9 +78,18 @@ class ImageConverter(object):
         self.info_sub  = rospy.Subscriber("/camera/color/camera_info", CameraInfo, self.info_cb)
 
     def load_marker_transform(self, marker_transform_file):
+        """
+        Loads the marker transforms from a file.
+        ----------
+        Args:
+            marker_transform_file {string}: The file containing the marker transforms.
+        ----------
+        Returns:
+            dict: A dictionary containing the marker transforms.
+        """
         load_unformated = np.load(marker_transform_file, allow_pickle=True)
         mk_transform = load_unformated['mk_tf_dict'][()]
-        print(mk_transform)
+        rospy.loginfo(" TF between markers successfully loaded from file.")
         return mk_transform
     
     def test_camera_tf(self):
@@ -96,6 +110,17 @@ class ImageConverter(object):
                                                 "world")
         
     def img_cb(self, msg): # Callback function for image msg
+        """
+        Callback when a new image is received.
+        ----------
+        Args:
+            msg {Image}: The image message.
+        ----------
+            self.markers_img: An image with drawn markers.
+            self.marker_pose_list {PoseArray}: A list of poses of the markers in the camera frame.
+            self.detected_ids {list}: A corresponding list to self.marker_pose_list, containing the detected ids.
+        """
+
         try:
             self.color_msg = msg
             self.color_img = self.bridge.imgmsg_to_cv2(self.color_msg,"bgr8")
@@ -108,9 +133,18 @@ class ImageConverter(object):
         self.merkers_img = markers_img
         self.marker_pose_list = marker_pose_list
         self.detected_ids = id_list
-        #print(id_list)
+
 
     def info_cb(self, msg):
+        """
+        Callback for the camera information.
+        ----------
+        Args:
+            msg {CameraInfo}: The camera information message.
+        ----------
+            self.K {numpy.array}: The camera matrix.
+            self.D {numpy.array}: The distortion coefficients.
+        """
         self.K = np.reshape(msg.K,(3,3))    # Camera matrix
         self.D = np.array(msg.D) # Distortion matrix. 5 for IntelRealsense, 8 for AzureKinect
 
@@ -124,6 +158,7 @@ class ImageConverter(object):
         Returns:
             image_with_aruco -- image with aruco markers
             marker_pose_list {PoseArray} -- list of poses of the detected markers
+            id_list {list} -- list of detected ids
         """
       
         # Create parameters for marker detection
@@ -162,7 +197,7 @@ class ImageConverter(object):
     
         return output_img, marker_pose_list, id_list
 
-    def make_pose(self,rvec,tvec):
+    def make_pose(self, rvec, tvec):
         """
         Given a marker id, euler angles and a translation vector, returns a Pose.
         ----------
@@ -177,8 +212,7 @@ class ImageConverter(object):
 
         marker_pose = Pose()
 
-        quat = self.eul2quat(rvec.flatten()[0], rvec.flatten()[
-                             1], rvec.flatten()[2])
+        quat = self.eul2quat(rvec.flatten()[0], rvec.flatten()[1], rvec.flatten()[2])
 
 
         marker_pose.position.x = tvec.flatten()[0]
@@ -193,7 +227,6 @@ class ImageConverter(object):
         return marker_pose
 
     def eul2quat(self, roll, pitch, yaw):
-
         qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - \
             np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
         qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + \
@@ -202,16 +235,27 @@ class ImageConverter(object):
             np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
         qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + \
             np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-
         return [qx, qy, qz, qw]
 
     def find_transforms(self):
+        """
+        Given the detected markers, find and update the transforms between the markers.
+        ----------
+            self.marker_pose_list {PoseArray}: A list of poses of the markers in the camera frame.
+            self.detected_ids {list}: A corresponding list to self.marker_pose_list, containing the detected ids.
+        ----------
+            self.marker_transforms_list {list}: A list of transforms between the markers.
+            self.marker_id_list {list}: A list of combination of markers.
+            self.marker_updates_list {list}: How many times each combination has been updated.
+        """
         marker_pose_list = self.marker_pose_list
         detected_ids = self.detected_ids
 
+        # Get all possible combinations of markers
         id_index = range(len(detected_ids))
         pose_combinations = list(itertools.combinations(id_index, 2))
 
+        # For each possible calculation, calculate the transfromation matrix
         for i, j in pose_combinations:
             combination = [detected_ids[i], detected_ids[j]]
             if combination in self.marker_id_list:
@@ -235,26 +279,36 @@ class ImageConverter(object):
 
             trans, rotation = utils.matrix_to_quat_trans(tf_0_to_1)
             
-
+            # If the transform does not yet exist add it. If it already exists update it with a weighted update.
             if (combination not in self.marker_id_list) & (combination[::-1] not in self.marker_id_list):
                 self.marker_transforms_list.append(
                     [np.array(trans), np.array(rotation)])
                 self.marker_id_list.append(combination)
+                self.marker_updates_list.append(1)
 
             else:
                 combination_idx = self.marker_id_list.index(combination)
-
                 average_translation = 0.999*self.marker_transforms_list[combination_idx][0] + 0.001 * np.array(trans)
                 average_rotation = utils.average_quaternions(
                     [self.marker_transforms_list[combination_idx][1], np.array(rotation)], weights=[0.9, 0.1])
 
                 self.marker_transforms_list[combination_idx][0] = average_translation
                 self.marker_transforms_list[combination_idx][1] = average_rotation
+                self.marker_updates_list[combination_idx] += 1
         return
         
     def set_transfroms(self, id_main):
+        """
+        Given the transforms found in the "find_transforms" function, set the transforms between the markers.
+        Shortest "path" between a marker and the main marker is used.
+        The transforms are saved in the "marker_transforms.npz" file.
+        ----------
+        Args:
+            id_main {int}: The id of the main marker.
+        ----------
+            self.marker_transforms {dict} : A dictionary of transforms between the markers.
+        """
         graph = self.build_graph(self.marker_id_list)
-        print(graph)
         paths = {}
         mk_tf = {}
         for start in graph.keys():
@@ -342,6 +396,15 @@ class ImageConverter(object):
 
 
     def build_graph(self, edges):
+        """
+        Build a node graph given a list of edges.
+        ----------
+        Args:
+            edges {list}: A list of edges.
+        ----------
+        Returns:
+            graph {dict}: A dictionary of nodes and its neighbors.
+        """
         graph = defaultdict(list)
 
         # Loop to iterate over every
@@ -356,6 +419,17 @@ class ImageConverter(object):
         return graph
 
     def BFS_SP(self, graph, start, goal):
+        """
+        Find the shortest path between two nodes in a graph.
+        ----------
+        Args:
+            graph {dict}: A dictionary of nodes and its neighbors.
+            start {int}: The id of the start node.
+            goal {int}: The id of the goal node.
+        ----------
+        Returns:
+            path {list}: A list of nodes in the shortest path.
+        """
         explored = []
 
         # Queue for traversing the
@@ -366,7 +440,7 @@ class ImageConverter(object):
         # reached
         if start == goal:
             print("Same Node")
-            return
+            return None
 
         # Loop to traverse the graph
         # with the help of the queue
@@ -406,9 +480,17 @@ def main():
 
     aruco_type = rospy.get_param("~aruco_type", "DICT_6X6_100")
     aruco_length = rospy.get_param("~aruco_length", "0.1")
-    aruco_find_transform = rospy.get_param("~aruco_find_transform", "True")
+    aruco_transforms = rospy.get_param("~aruco_transforms", "None")
+
+    if aruco_transforms is None:
+        rospy.logwarn("No marker transforms provided. Calibration started in 3s")
+        rospy.sleep(3)
+        aruco_find_transform = True
+    else:
+        aruco_find_transform = False
+
     aruco_detect = ImageConverter(
-        aruco_type, aruco_length, '/home/jure/catkin_ws/src/aruco_detect/src/marker_transforms.npz')
+        aruco_type, aruco_length, aruco_transforms)
 
     start_time = rospy.get_time()
 

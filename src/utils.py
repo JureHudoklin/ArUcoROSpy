@@ -31,7 +31,7 @@ def matrix_to_quat_trans(matrix):
 
 def quat_trans_to_matrix(trans, quat):
     """
-    Convert a translation vector and quaternion to a matrix.
+    Convert a translation and quaternion vector to a matrix.
     """
     trans_mtx = tf.transformations.translation_matrix(trans)
     rot_mtx = tf.transformations.quaternion_matrix(quat)
@@ -40,12 +40,25 @@ def quat_trans_to_matrix(trans, quat):
 
 
 def pose_to_quat_trans(pose):
+    """
+    Converts a Pose to a quaternion and translation vector
+    ----------
+    Args:
+        pose {Pose}: ros geometry_msg.msg Pose
+    ----------
+    Returns:
+        trans {np.array}: [t_x, t_y, t_z] transation vector
+        quat {np.array}: [q_x, q_y, q_z, q_w] quaternion vector
+    """
     quat = np.array([pose.orientation.x, pose.orientation.y,
               pose.orientation.z, pose.orientation.w])
     trans = np.array([pose.position.x,pose.position.y, pose.position.z])
     return trans, quat
 
 def quat_trans_to_pose(trans, quat):
+    """
+    Converts a quaternion and translation vector to a Pose.
+    """
     pose = Pose()
     pose.position.x = trans[0]
     pose.position.y = trans[1]
