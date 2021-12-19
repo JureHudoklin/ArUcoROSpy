@@ -1,5 +1,5 @@
 # ArUcoROSpy
-Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect camera and python
+Detect a set of aruco markers to estimate a pose of an object. Transforms between markers can be found or provided in a form of a .npz file. The .npz file should contain a dictionary with a transforms (4x4 matrix) of each marker to the main marker
 
 ##Detecting 36 ArUco Markers at once
 [![36arucomarkers](https://user-images.githubusercontent.com/69029439/145345616-5071700a-db01-4aee-aae0-50d06c755227.png)](https://www.youtube.com/watch?v=2GhBSx3AGbs)
@@ -73,6 +73,13 @@ Detect ArUco Marker and visualize its pose using IntelRealsense or Azure Kinect 
 
 ## 2. Run ArucoDetect.py
 
+    ```bash
+    roslaunch aruco_detect arcode_launch.launch
+    ```
+
+    In the launch file the following parameters may be set:
+    - aruco_type {str}: Type of the aruco marker (default: "DICT_6X6_100")
+    - aruco_size {double}: Size of the aruco markers in meters (default: "0.1")
+    - aruco_transforms {str}: A path to the .npz file containing the transforms between markers. If not provided calibration needs to be done at launch.
     
-    python /path/to/your/python/script/arucodetect.py
     
