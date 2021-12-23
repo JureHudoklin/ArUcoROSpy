@@ -1,7 +1,10 @@
 <launch>
   <node name="aruco_marker_detect" pkg="aruco_detect" type="aruco_node.py" output="screen" >
     <param name="aruco_type" type="str" value="DICT_6X6_100" />
-    <param name="aruco_length" type="double" value="0.1" />
-    <param name="aruco_transforms" type="str" value="/home/jure/catkin_ws/src/aruco_detect/src/marker_transforms.npz" />
+    <param name="aruco_length" type="double" value="0.04955" />
+    <param name="aruco_transforms" type="str" value="/home/jure/ros_workspaces/catkin_ws/src/ArUcoROSpy/src/marker_transforms.npz" />
+    <param name="aruco_update_rate" type="double" value="0.5" />
+    <param name="aruco_object_id" type="str" value="mobile_robot" />
+
   </node>
 </launch>
