@@ -45,6 +45,10 @@ ARUCO_DICT = {
 
 class ArucoDetection(object):
     def __init__(self, *args, **kwargs):
+        """
+        Aruco detection class.
+        """
+
 
         self.bridge = CvBridge()
         # Get params
@@ -90,7 +94,10 @@ class ArucoDetection(object):
     
     def estimate_pose_cb(self, req):
         """
-        Callback for the service
+        Estimate the pose of the object given a request (Image, CameraInfo)
+        ----------
+        Response:
+            ArucoPoseEstimateResponse: The estimated pose of the object. Success or failure.
         """
         image = req.image
         camera_info = req.camera_info
@@ -117,13 +124,14 @@ class ArucoDetection(object):
 
     def caminfo_to_matrx_dist(self, caminfo):
         """
-        Callback for the camera information.
+        Converts a camera info message to a camera matrix and distortion coefficients.
         ----------
         Args:
             msg {CameraInfo}: The camera information message.
         ----------
-            self.K {numpy.array}: The camera matrix.
-            self.D {numpy.array}: The distortion coefficients.
+        Returns:
+            K {numpy.array}: The camera matrix.
+            D {numpy.array}: The distortion coefficients.
         """
         K = np.reshape(caminfo.K, (3, 3))    # Camera matrix
         # Distortion matrix. 5 for IntelRealsense, 8 for AzureKinect
@@ -135,10 +143,12 @@ class ArucoDetection(object):
         Given an RDB image detect aruco markers. 
         ----------
         Args:
-            img -- RBG image
+            img {Image} -- RBG image
+            camera_matrix {np.array} -- camera matrix 3x3
+            dist_coeffs {np.array} -- distortion coefficients (len 4,5,8 or 12)
         ----------
         Returns:
-            image_with_aruco -- image with aruco markers
+            output_img -- image with aruco markers
             marker_pose_list {PoseArray} -- list of poses of the detected markers
             id_list {list} -- list of detected ids
         """
@@ -182,11 +192,10 @@ class ArucoDetection(object):
 
     def make_pose(self, rvec, tvec):
         """
-        Given a marker id, euler angles and a translation vector, returns a Pose.
+        Given rotation vector and a translation vector, returns a Pose.
         ----------
         Args:
-            id {int} -- id of the marker
-            rvec {np.array} -- euler angles of the marker
+            rvec {np.array} -- rotation vector of the marker
             tvec {np.array} -- translation vector of the marker
         ----------
         Returns:
@@ -215,6 +224,17 @@ class ArucoDetection(object):
         return marker_pose
 
     def calculate_transform(self, id_main, marker_pose_list, detected_ids):
+        """
+        Given transforms of all detected markers calculate the pose of the object.
+        ----------
+        Args:
+            id_main {int} -- id of the main marker
+            marker_pose_list {PoseArray} -- list of poses of the detected markers
+            detected_ids {list} -- list of detected ids
+        ----------
+        Returns:
+            Pose -- Estimated pose of the object
+        """
         transforms_rot = []
         transforms_trans = []
         for i, marker_id in enumerate(detected_ids):
