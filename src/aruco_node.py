@@ -9,12 +9,13 @@ import numpy as np
 import imutils
 import argparse
 import itertools
-import tf2_ros as tf
+import tf2_ros as tf2
+import tf
 from collections import defaultdict
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CameraInfo
-from geometry_msgs.msg import Pose, PoseArray
+from geometry_msgs.msg import Pose, PoseArray, TransformStamped
 from cv_bridge import CvBridge, CvBridgeError
 import cv2.aruco as aruco
 
@@ -45,15 +46,33 @@ ARUCO_DICT = {
         "DICT_APRILTAG_36h11": aruco.DICT_APRILTAG_36h11 }
 
 class ImageConverter(object):
-    def __init__(self, marker_type, marker_size, marker_transform_file = None, aruco_update_rate = 0.1, aruco_object_id = "aruco_marker", save_dir = None):
+    def __init__(self, kwargs):
+        """
+        Object for detecting and tracking ArUco markers.
+        ----------
+        Args:
+        Keyword Args:
+            marker_type {string}: The type of ArUco marker to detect.
+            marker_size {float}: The size of the ArUco marker in m.
+            marker_transform_file {string}: The file containing the transformation matrixes between markers and desired pose.
+            aruco_update_rate {float}: The rate at which the ArUco markers are updated.
+            aruco_object_id {string}: The name of the object. A TF frame with that name will be broadcasted.
+            save_dir {string}: The directory where the marker_transform_file will be saved after callibration.
+            camera_img_topic {string}: The topic where the camera image is published.
+            camera_info_topic {string}: The topic where the camera info is published.
+            camera_frame_id {string}: The frame id of the camera.
+        """
         self.bridge = CvBridge()
         # Settings
-        self.marker_type = marker_type
-        self.marker_size = marker_size
-        self.marker_transform_file = marker_transform_file
-        self.aruco_update_rate = aruco_update_rate
-        self.aruco_object_id = aruco_object_id
-        self.save_dir = save_dir
+        self.marker_type = kwargs["aruco_type"]
+        self.marker_size = kwargs["aruco_length"]
+        self.marker_transform_file = kwargs["aruco_transforms"]
+        self.aruco_update_rate = kwargs["aruco_update_rate"]
+        self.aruco_object_id = kwargs["aruco_obj_id"]
+        self.save_dir = kwargs["save_dir"]
+        self.camera_img_topic = kwargs["camera_img_topic"]
+        self.camera_info_topic = kwargs["camera_info_topic"]
+        self.camera_frame_id = kwargs["camera_frame_id"]
 
         # We will get pose from 2 markers; id '35' and '43'
 
@@ -70,18 +89,25 @@ class ImageConverter(object):
 
         #---- Used at prediction time ----#
         self.obj_transform = Pose()
-        if not marker_transform_file is None:
-            self.marker_transforms = self.load_marker_transform(marker_transform_file)
+
+        if not self.marker_transform_file is None:
+            try:
+                self.marker_transforms = self.load_marker_transform(self.marker_transform_file)
+            except:
+                ValueError("Invalid marker transform file")
         #--------------------------------#
 
         # ROS Publisher
         self.aruco_pub = rospy.Publisher("aruco_img", Image, queue_size=10)
-        self.tf_brodcaster = tf.TransformBroadcaster()
-        self.tf_static_brodcaster = tf.StaticTransformBroadcaster()
-        self.tf_listener = tf.TransformListener()
+        self.tf_brodcaster = tf2.TransformBroadcaster()
+        self.tf_static_brodcaster = tf2.StaticTransformBroadcaster()
+        self.tf_buffer = tf2.Buffer()
+        self.tf_listener = tf2.TransformListener(self.tf_buffer)
         # ROS Subscriber
-        self.image_sub = rospy.Subscriber("/camera/color/image_raw", Image, self.img_cb)
-        self.info_sub  = rospy.Subscriber("/camera/color/camera_info", CameraInfo, self.info_cb)
+        self.image_sub = rospy.Subscriber(
+            self.camera_img_topic, Image, self.img_cb)
+        self.info_sub = rospy.Subscriber(
+            self.camera_info_topic, CameraInfo, self.info_cb)
 
     def load_marker_transform(self, marker_transform_file):
         """
@@ -99,22 +125,21 @@ class ImageConverter(object):
         print(mk_transform)
         return mk_transform
     
-    # def test_camera_tf(self):
-    #     # TEST BRODCAST CAMERA TRANSFORM
-    #     self.camera_transform = Pose()
-    #     self.camera_transform.position.x = 0.0
-    #     self.camera_transform.position.y = 0.0
-    #     self.camera_transform.position.z = 0.0
-    #     self.camera_transform.orientation.x = 0.0
-    #     self.camera_transform.orientation.y = 0.0
-    #     self.camera_transform.orientation.z = 0.0
-    #     self.camera_transform.orientation.w = 1.0
-    #     self.tf_brodcaster.sendTransform((self.camera_transform.position.x, self.camera_transform.position.y, self.camera_transform.position.z),
-    #                                             (self.camera_transform.orientation.x, self.camera_transform.orientation.y,
-    #                                              self.camera_transform.orientation.z, self.camera_transform.orientation.w),
-    #                                             rospy.Time.now(),
-    #                                             "camera",
-    #                                             "world")
+    def test_camera_tf(self):
+        # TEST BRODCAST CAMERA TRANSFORM
+        tf_message = TransformStamped()
+        tf_message.header.stamp = rospy.Time.now()
+        tf_message.header.frame_id = "world"
+        tf_message.child_frame_id = "camera_base"
+        tf_message.transform.translation.x = 0.0
+        tf_message.transform.translation.y = 0.0
+        tf_message.transform.translation.z = 0.0
+        tf_message.transform.rotation.x = 0.0
+        tf_message.transform.rotation.y = 0.0
+        tf_message.transform.rotation.z = 0.0
+        tf_message.transform.rotation.w = 1.0
+
+        self.tf_brodcaster.sendTransform(tf_message)
         
     def img_cb(self, msg): # Callback function for image msg
         """
@@ -131,7 +156,7 @@ class ImageConverter(object):
         try:
             self.color_msg = msg
             self.color_img = self.bridge.imgmsg_to_cv2(self.color_msg,"bgr8")
-            self.color_img = imutils.resize(self.color_img, width=1000)
+            #self.color_img = imutils.resize(self.color_img, width=1000) # IF YOU RESIZE IMAGE MAKE SURE TO RESIZE THE CAMERA INFO
 
         except CvBridgeError as e:
             print(e)
@@ -186,9 +211,8 @@ class ImageConverter(object):
             for i, marker_id in enumerate(ids):
                 # Draw bounding box on the marker
                 img = aruco.drawDetectedMarkers(img, [corners[i]], marker_id)
-
-                # Outline marker's frame on the image
-                rvec,tvec,_ = aruco.estimatePoseSingleMarkers([corners[i]],markerLength,cameraMatrix, distCoeffs)
+                
+                rvec,tvec,_ = aruco.estimatePoseSingleMarkers([corners[i]],markerLength, cameraMatrix, distCoeffs) 
                 output_img = aruco.drawAxis(img, cameraMatrix, distCoeffs, rvec, tvec, 0.05)
                 out_img = Image()
                 out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
@@ -197,14 +221,13 @@ class ImageConverter(object):
                 # Convert its pose to Pose.msg format in order to publish
                 marker_pose = self.make_pose(rvec, tvec)
 
-
-               
-                self.tf_brodcaster.sendTransform((marker_pose.position.x, marker_pose.position.y, marker_pose.position.z),
-                                                (marker_pose.orientation.x, marker_pose.orientation.y,
-                                                 marker_pose.orientation.z, marker_pose.orientation.w),
-                                                rospy.Time.now(),
-                                                "marker_{}".format(marker_id),
-                                                "world")
+                tf_marker = TransformStamped()
+                tf_marker.header.stamp = rospy.Time.now()
+                tf_marker.header.frame_id = self.camera_frame_id
+                tf_marker.child_frame_id = "marker_{}".format(marker_id)
+                tf_marker.transform.translation = marker_pose.position
+                tf_marker.transform.rotation = marker_pose.orientation
+                self.tf_brodcaster.sendTransform(tf_marker)
 
                 marker_pose_list.poses.append(marker_pose)
                 id_list.append(int(marker_id))
@@ -226,15 +249,20 @@ class ImageConverter(object):
         Returns:
             Pose -- Pose of the marker
         """
-
         marker_pose = Pose()
+        tvec = np.squeeze(tvec)
+        rvec = np.squeeze(rvec)
 
-        quat = self.eul2quat(rvec.flatten()[0], rvec.flatten()[1], rvec.flatten()[2])
+        r_mat = np.eye(3)
+        cv2.Rodrigues(rvec, r_mat)
+        tf_mat = np.eye(4)
+        tf_mat[0:3,0:3] = r_mat
 
+        quat = tf.transformations.quaternion_from_matrix(tf_mat)
 
-        marker_pose.position.x = tvec.flatten()[0]
-        marker_pose.position.y = tvec.flatten()[1]
-        marker_pose.position.z = tvec.flatten()[2]
+        marker_pose.position.x = tvec[0]
+        marker_pose.position.y = tvec[1]
+        marker_pose.position.z = tvec[2]
 
         marker_pose.orientation.x = quat[0]
         marker_pose.orientation.y = quat[1]
@@ -242,17 +270,6 @@ class ImageConverter(object):
         marker_pose.orientation.w = quat[3]
 
         return marker_pose
-
-    def eul2quat(self, roll, pitch, yaw):
-        qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - \
-            np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-        qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + \
-            np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
-        qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - \
-            np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
-        qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + \
-            np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-        return [qx, qy, qz, qw]
 
     def find_transforms(self):
         """
@@ -297,7 +314,7 @@ class ImageConverter(object):
             #     print((-tf_matrix_0[0:3,3] + tf_matrix_1[0:3,3])-tf_0_to_1[0:3,3])
 
             trans, rotation = utils.matrix_to_quat_trans(tf_0_to_1)
-            trans = -tf_matrix_0[0:3,3] + tf_matrix_1[0:3,3]
+            #trans = -tf_matrix_0[0:3,3] + tf_matrix_1[0:3,3]
             
             # If the transform does not yet exist add it. If it already exists update it with a weighted update.
             if (combination not in self.marker_id_list) & (combination[::-1] not in self.marker_id_list):
@@ -308,9 +325,9 @@ class ImageConverter(object):
 
             else:
                 combination_idx = self.marker_id_list.index(combination)
-                average_translation = 0.999*self.marker_transforms_list[combination_idx][0] + 0.001 * np.array(trans)
+                average_translation = 0.99*self.marker_transforms_list[combination_idx][0] + 0.01 * np.array(trans)
                 average_rotation = utils.average_quaternions(
-                    [self.marker_transforms_list[combination_idx][1], np.array(rotation)], weights=[0.9, 0.1])
+                    [self.marker_transforms_list[combination_idx][1], np.array(rotation)], weights=[0.7, 0.3])
 
                 self.marker_transforms_list[combination_idx][0] = average_translation
                 self.marker_transforms_list[combination_idx][1] = average_rotation
@@ -367,9 +384,9 @@ class ImageConverter(object):
                 next_idx += 1
 
         self.marker_transforms = mk_tf
-        np.savez(os.path.join(self.save_dir, '/marker_transforms.npz'), mk_tf_dict=mk_tf)
+        np.savez(os.path.join(self.save_dir, 'marker_transforms.npz'), mk_tf_dict=mk_tf)
 
-        print("The following transforms were saved:", self.load_marker_transform(os.path.join(self.save_dir, '/marker_transforms.npz')))
+        print("The following transforms were saved:", self.load_marker_transform(os.path.join(self.save_dir, 'marker_transforms.npz')))
         return
 
     def calculate_transform(self, id_main):
@@ -400,10 +417,19 @@ class ImageConverter(object):
         
         avg_rot = utils.average_quaternions(transforms_rot)
         avg_trans = np.average(transforms_trans, axis=0)
+
+        object_tf = TransformStamped()
+        object_tf.header.stamp = rospy.Time.now()
+        object_tf.header.frame_id = self.camera_frame_id
+        object_tf.child_frame_id = self.aruco_object_id
+        
+
         
         if self.aruco_update_rate >= 1:
             self.obj_transform = utils.quat_trans_to_pose(avg_trans, avg_rot)
-            self.tf_static_brodcaster.sendTransform(avg_trans, avg_rot, rospy.Time.now(), self.obj_id, "camera")
+            object_tf.transform.translation = self.obj_transform.position
+            object_tf.transform.rotation = self.obj_transform.orientation
+            self.tf_static_brodcaster.sendTransform(object_tf)
             return
         elif self.aruco_update_rate <= 0:
             raise ValueError("Aruco update rate should be between 1 and 0")
@@ -414,10 +440,12 @@ class ImageConverter(object):
             rot_final = utils.average_quaternions([rot_old, avg_rot], weights = [(1-self.aruco_update_rate), self.aruco_update_rate])
             self.obj_transform = utils.quat_trans_to_pose(trans_final, rot_final)
         
-            self.tf_brodcaster.sendTransform(
-                trans_final, rot_final, rospy.Time.now(),  self.obj_id, "camera")
+            object_tf.transform.translation = self.obj_transform.position
+            object_tf.transform.rotation = self.obj_transform.orientation
+            self.tf_brodcaster.sendTransform(object_tf)
 
-            tf.TransformBroadcaster
+
+
 
 
     def build_graph(self, edges):
@@ -504,10 +532,26 @@ def main():
     rospy.init_node('aruco_marker_detect')
 
     aruco_type = rospy.get_param("~aruco_type", "DICT_6X6_100")
-    aruco_length = rospy.get_param("~aruco_length", "0.1")
+    aruco_length = rospy.get_param("~aruco_length", "0.0489")
     aruco_transforms = rospy.get_param("~aruco_transforms", None)
     aruco_update_rate = rospy.get_param("~aruco_update_rate", "0.1")
     aruco_obj_id = rospy.get_param("~aruco_obj_id", "aruco_obj")
+    camera_img_topic = rospy.get_param("~camera_img_topic", "/camera/rgb/image_raw")
+    camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/rgb/camera_info")
+    camera_frame_id = rospy.get_param("~camera_frame_id", "rgb_camera_link")
+
+    params = {
+        "aruco_type": aruco_type,
+        "aruco_length": aruco_length,
+        "aruco_transforms": aruco_transforms,
+        "aruco_update_rate": aruco_update_rate,
+        "aruco_obj_id": aruco_obj_id,
+        "camera_img_topic": camera_img_topic,
+        "camera_info_topic": camera_info_topic,
+        "camera_frame_id": camera_frame_id,
+        "save_dir": "/home/jure/ros_workspaces/catkin_ws/src/ArUcoROSpy/src"
+    }
+
 
     if aruco_transforms is None:
         rospy.logwarn("No marker transforms provided. Calibration started in 3s")
@@ -517,27 +561,25 @@ def main():
     else:
         aruco_find_transform = False
 
-    aruco_detect = ImageConverter(
-        aruco_type, aruco_length, aruco_transforms, aruco_update_rate, aruco_obj_id)
+    aruco_detect = ImageConverter(params)
 
     start_time = rospy.get_time()
 
     while not rospy.is_shutdown():
         
-        
         if aruco_find_transform == True:
-            if rospy.get_time() - start_time < 60:
+            if rospy.get_time() - start_time < 120:
                 aruco_detect.find_transforms()
                 print(aruco_detect.detected_ids)
                 rospy.sleep(0.01)
             else:
-                aruco_detect.set_transfroms(55)
+                aruco_detect.set_transfroms(45)
                 aruco_find_transform = False
             #rospy.sleep(1)
         else:
             rospy.sleep(0.1)
             aruco_detect.test_camera_tf()
-            aruco_detect.calculate_transform(55)
+            aruco_detect.calculate_transform(45)
 
 
 if __name__ == '__main__':
