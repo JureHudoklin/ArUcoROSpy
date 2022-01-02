@@ -38,11 +38,16 @@ Detect a set of aruco markers to estimate a pose of an object. Transforms betwee
 - [Opencv ArUco](https://docs.opencv.org/4.x/d9/d6a/group__aruco.html#gab9159aa69250d8d3642593e508cb6baa)
 - [cv_bridge](https://wiki.ros.org/cv_bridge)
 
+
+
         
 ### Running the Code
+There are 2 ways this package may be used. 
+Either as a service that calculates the position of the object only when asked or a node that continuously updates the position of the object in the tf tree.
 
-## 1. Run the camera code in ROS
-    
+Before running any of the versions above the transformation matrix between markers has to be "calibrated".
+
+## Run the camera code in ROS (If using realsense or kinect)
 - Intel Realsense ROS
     
     **Run the built-in Intel Realsense program to see the camera's current state**
@@ -71,15 +76,32 @@ Detect a set of aruco markers to estimate a pose of an object. Transforms betwee
     ```bash
     roslaunch azure_kinect_ros_driver kinect_rgbd.launch
     ```
+## 1. Determine Aruco marker transforms
+First open "aruco_calibrate.launch" file and set the appropriate parameters.
+Run the following command. For the next 60 seconds ros will try to calculate the transformations between markers. Try to capture all markers from as many angles as possible. At least two markers should be seen in each frame.
+```bash
+roslaunch aruco_detect aruco_calibrate.launch
+```
 
-## 2. Run ArucoDetect.py
+## 2. Run service or node
 In the launch file the following parameters may be set:
 - aruco_type {str}: Type of the aruco marker (default: "DICT_6X6_100")
 - aruco_size {double}: Size of the aruco markers in meters (default: "0.1")
 - aruco_transforms {str}: A path to the .npz file containing the transforms between markers. If not provided calibration needs to be done at launch.
+- aruco_update_rate {double}: A value between 0 and 1. Determines how much each frame updates the position of the object (running average)
+- aruco_object_id {str}: The name the detected object will be given in the tf tree.
+- aruco_main_marker_id {int}: The ID of the "0" aruco marker. All transforms are calculated to this marker. The object position is the location of this marker.
+- camera_img_topic {str}: The name of the ros topic where camera images are posted.
+- camera_info_topic {str}: The name of the ros topic where the information about the camera is posted (camera matrix, distortion matrix)
+- camera_frame_id {str}: The id of the frame in which the Image is posted.
 
+To run the node:
 ```bash
-roslaunch aruco_detect arcode_launch.launch
+roslaunch aruco_detect arucode_node.launch
+```
+To run as a service:
+```bash
+roslaunch aruco_detect arucode_service.launch
 ```
 
 
