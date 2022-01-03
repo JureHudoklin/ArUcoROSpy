@@ -257,8 +257,27 @@ class ArucoDetection(object):
                     rospy.logwarn("Unknown Aruco marker present.")
                     continue
 
+        transforms_rot = np.array(transforms_rot)
+        transforms_trans = np.array(transforms_trans)
+
         if len(transforms_rot) == 0:
             return None
+        elif len(transforms_rot) > 2:
+            rotation_mtxs = np.array(
+                [tf.transformations.quaternion_matrix(rt) for rt in transforms_rot])
+            z_axis = np.array([0, 0, 1, 1])
+            z_rotated = np.einsum(
+                "ijk,k->ij", rotation_mtxs[:, 0:3, 0:3], z_axis[0:3])
+            z_rotated = np.squeeze(z_rotated)
+            z_rotated_compare = np.dot(z_rotated, z_rotated.T)
+            row_sum = np.sum(z_rotated_compare, axis=1)
+            mask = np.where(
+                np.sign(z_rotated_compare[:, 0]) != np.sign(row_sum), False, True)
+
+            if np.any(mask == False):
+                print("Aruco Marker flipped. Discarding")
+            transforms_rot = transforms_rot[mask]
+            transforms_trans = transforms_trans[mask]
 
         transforms_rot = np.array(transforms_rot)
         transforms_trans = np.array(transforms_trans)
