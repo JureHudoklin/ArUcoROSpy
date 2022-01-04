@@ -153,7 +153,7 @@ class ArucoCalibrate(object):
         # Distortion matrix. 5 for IntelRealsense, 8 for AzureKinect
         self.D = np.array(msg.D)
 
-    def detect_aruco(self, img):
+    def detect_aruco(self, img, broadcast_markers_tf=True):
         """
         Given an RDB image detect aruco markers. 
         ----------
@@ -170,8 +170,12 @@ class ArucoCalibrate(object):
         aruco_dict = aruco.Dictionary_get(ARUCO_DICT[self.marker_type])
         parameters = aruco.DetectorParameters_create()
 
+        parameters.minCornerDistanceRate = 0.02
+        parameters.minMarkerDistanceRate = 0.02
+        parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
+
         # Detect aruco markers
-        corners, ids, _ = aruco.detectMarkers(
+        corners, ids, rejected = aruco.detectMarkers(
             img, aruco_dict, parameters=parameters)
 
         marker_pose_list = PoseArray()
@@ -180,6 +184,7 @@ class ArucoCalibrate(object):
             markerLength = self.marker_size
             cameraMatrix = self.K
             distCoeffs = self.D
+            output_img = img.copy()
 
             # For numerous markers:
             for i, marker_id in enumerate(ids):
@@ -190,26 +195,31 @@ class ArucoCalibrate(object):
                     [corners[i]], markerLength, cameraMatrix, distCoeffs)
                 output_img = aruco.drawAxis(
                     img, cameraMatrix, distCoeffs, rvec, tvec, 0.05)
-                out_img = Image()
-                out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
-                self.aruco_pub.publish(out_img)
 
                 # Convert its pose to Pose.msg format in order to publish
                 marker_pose = self.make_pose(rvec, tvec)
 
-                tf_marker = TransformStamped()
-                tf_marker.header.stamp = rospy.Time.now()
-                tf_marker.header.frame_id = self.camera_frame_id
-                tf_marker.child_frame_id = "marker_{}".format(marker_id)
-                tf_marker.transform.translation = marker_pose.position
-                tf_marker.transform.rotation = marker_pose.orientation
-                self.tf_brodcaster.sendTransform(tf_marker)
+                if broadcast_markers_tf == True:
+                    tf_marker = TransformStamped()
+                    tf_marker.header.stamp = rospy.Time.now()
+                    tf_marker.header.frame_id = self.camera_frame_id
+                    tf_marker.child_frame_id = "marker_{}".format(marker_id)
+                    tf_marker.transform.translation = marker_pose.position
+                    tf_marker.transform.rotation = marker_pose.orientation
+                    self.tf_brodcaster.sendTransform(tf_marker)
 
                 marker_pose_list.poses.append(marker_pose)
                 id_list.append(int(marker_id))
 
+            output_img = aruco.drawDetectedMarkers(
+                img, rejected, borderColor=(100, 0, 240))
+
         else:
             output_img = img
+
+        out_img = Image()
+        out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
+        self.aruco_pub.publish(out_img)
 
         return output_img, marker_pose_list, id_list
 
@@ -485,7 +495,7 @@ def main():
 
         if aruco_find_transform == True:
             aruco_detect.test_camera_tf()
-            if rospy.get_time() - start_time < 10:
+            if rospy.get_time() - start_time < 60:
                 aruco_detect.find_transforms()
                 print(aruco_detect.detected_ids)
                 rospy.sleep(0.01)

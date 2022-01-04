@@ -161,7 +161,7 @@ class ImageConverter(object):
         self.K = np.reshape(msg.K,(3,3))    # Camera matrix
         self.D = np.array(msg.D) # Distortion matrix. 5 for IntelRealsense, 8 for AzureKinect
 
-    def detect_aruco(self,img):
+    def detect_aruco(self, img, broadcast_markers_tf=False):
         """
         Given an RDB image detect aruco markers. 
         ----------
@@ -178,8 +178,12 @@ class ImageConverter(object):
         aruco_dict = aruco.Dictionary_get(ARUCO_DICT[self.marker_type])
         parameters = aruco.DetectorParameters_create()
 
+        parameters.minCornerDistanceRate = 0.02
+        parameters.minMarkerDistanceRate = 0.02
+        parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
+
         # Detect aruco markers
-        corners,ids, _ = aruco.detectMarkers(img, aruco_dict, parameters = parameters)
+        corners, ids, rejected = aruco.detectMarkers(img, aruco_dict, parameters = parameters)
                
         marker_pose_list = PoseArray()
         id_list = []
@@ -187,6 +191,7 @@ class ImageConverter(object):
             markerLength = self.marker_size
             cameraMatrix = self.K 
             distCoeffs   = self.D
+            output_img = img.copy()
 
             # For numerous markers:
             for i, marker_id in enumerate(ids):
@@ -195,26 +200,31 @@ class ImageConverter(object):
                 
                 rvec,tvec,_ = aruco.estimatePoseSingleMarkers([corners[i]],markerLength, cameraMatrix, distCoeffs) 
                 output_img = aruco.drawAxis(img, cameraMatrix, distCoeffs, rvec, tvec, 0.05)
-                out_img = Image()
-                out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
-                self.aruco_pub.publish(out_img)
                 
                 # Convert its pose to Pose.msg format in order to publish
                 marker_pose = self.make_pose(rvec, tvec)
 
-                tf_marker = TransformStamped()
-                tf_marker.header.stamp = rospy.Time.now()
-                tf_marker.header.frame_id = self.camera_frame_id
-                tf_marker.child_frame_id = "marker_{}".format(marker_id)
-                tf_marker.transform.translation = marker_pose.position
-                tf_marker.transform.rotation = marker_pose.orientation
-                self.tf_brodcaster.sendTransform(tf_marker)
+                if broadcast_markers_tf == True:
+                    tf_marker = TransformStamped()
+                    tf_marker.header.stamp = rospy.Time.now()
+                    tf_marker.header.frame_id = self.camera_frame_id
+                    tf_marker.child_frame_id = "marker_{}".format(marker_id)
+                    tf_marker.transform.translation = marker_pose.position
+                    tf_marker.transform.rotation = marker_pose.orientation
+                    self.tf_brodcaster.sendTransform(tf_marker)
 
                 marker_pose_list.poses.append(marker_pose)
                 id_list.append(int(marker_id))
 
+            output_img = aruco.drawDetectedMarkers(
+                img, rejected, borderColor=(100, 0, 240))
+
         else:
             output_img = img
+
+        out_img = Image()
+        out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
+        self.aruco_pub.publish(out_img)
     
         return output_img, marker_pose_list, id_list
 
@@ -276,8 +286,8 @@ class ImageConverter(object):
                 continue
             else:
                 if not marker_id in self.marker_transforms:
-                    rospy.logwarn("Unknown marker ID detected")
-                    print(marker_id)
+                    rospy.logwarn(
+                        "Unknown marker ID detected {}".format(marker_id))
                     continue
                 tf_matrix = utils.quat_trans_to_matrix(trans, rot)
                 full_tf = np.dot(
@@ -299,14 +309,12 @@ class ImageConverter(object):
                 "ijk,k->ij", rotation_mtxs[:, 0:3, 0:3], z_axis[0:3])
             z_rotated = np.squeeze(z_rotated)
             z_rotated_compare = np.dot(z_rotated, z_rotated.T)
-            row_sum = np.sum(z_rotated_compare, axis=1)
-            mask = np.where(
-                np.sign(z_rotated_compare[:, 0]) != np.sign(row_sum), False, True)
+
+            col_avg = np.average(z_rotated_compare, axis=0)
+            outlier = np.argmin(col_avg)
             
-            if np.any(mask == False):
-                print(mask)
-            transforms_rot = transforms_rot[mask]
-            transforms_trans = transforms_trans[mask]
+            transforms_rot = np.delete(transforms_rot, outlier, axis=0)
+            transforms_trans = np.delete(transforms_trans, outlier, axis=0)
 
         if len(transforms_rot) > 1:
             transforms_rot = np.array(transforms_rot)
@@ -336,7 +344,9 @@ class ImageConverter(object):
         else:
             trans_old, rot_old = utils.pose_to_quat_trans(self.obj_transform)
 
-            trans_final = trans_old*(1-self.aruco_update_rate) + (self.aruco_update_rate)*avg_trans
+            trans_final = trans_old * \
+                (1-(self.aruco_update_rate)**2) + \
+                (self.aruco_update_rate)**2*avg_trans
             rot_final = utils.average_quaternions([rot_old, avg_rot], weights = [(1-self.aruco_update_rate), self.aruco_update_rate])
             self.obj_transform = utils.quat_trans_to_pose(trans_final, rot_final)
         
@@ -381,7 +391,7 @@ def main():
 
     while not rospy.is_shutdown():
 
-        rospy.sleep(0.1)
+        rospy.sleep(0.2)
         aruco_detect.calculate_transform(aruco_main_marker_id)
 
 

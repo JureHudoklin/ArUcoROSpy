@@ -66,6 +66,9 @@ class ArucoDetection(object):
         self.detected_ids = []  # Coresponding detected ids
         #----------------------------------------------#
 
+        # ROS publishers
+        self.aruco_pub = rospy.Publisher("aruco_img", Image, queue_size=10)
+
         #---- Used at prediction time ----#
         if not self.marker_transform_file is None:
             try:
@@ -156,9 +159,12 @@ class ArucoDetection(object):
         # Create parameters for marker detection
         aruco_dict = aruco.Dictionary_get(ARUCO_DICT[self.marker_type])
         parameters = aruco.DetectorParameters_create()
+        parameters.minCornerDistanceRate = 0.02
+        parameters.minMarkerDistanceRate = 0.02
+        parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
 
         # Detect aruco markers
-        corners, ids, _ = aruco.detectMarkers(
+        corners, ids, rejected = aruco.detectMarkers(
             img, aruco_dict, parameters=parameters)
 
         marker_pose_list = PoseArray()
@@ -176,17 +182,21 @@ class ArucoDetection(object):
                 output_img = aruco.drawAxis(
                     img, camera_matrix, dist_coeffs, rvec, tvec, 0.05)
                     
-                out_img = Image()
-                out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
-
                 # Convert its pose to Pose.msg format in order to publish
                 marker_pose = self.make_pose(rvec, tvec)
 
                 marker_pose_list.poses.append(marker_pose)
                 id_list.append(int(marker_id))
 
+            output_img = aruco.drawDetectedMarkers(
+                img, rejected, borderColor=(100, 0, 240))
+
         else:
             output_img = img
+
+        out_img = Image()
+        out_img = self.bridge.cv2_to_imgmsg(output_img, "bgr8")
+        self.aruco_pub.publish(out_img)
 
         return output_img, marker_pose_list, id_list
 
@@ -261,7 +271,7 @@ class ArucoDetection(object):
         transforms_trans = np.array(transforms_trans)
 
         if len(transforms_rot) == 0:
-            return None
+            return
         elif len(transforms_rot) > 2:
             rotation_mtxs = np.array(
                 [tf.transformations.quaternion_matrix(rt) for rt in transforms_rot])
@@ -270,20 +280,22 @@ class ArucoDetection(object):
                 "ijk,k->ij", rotation_mtxs[:, 0:3, 0:3], z_axis[0:3])
             z_rotated = np.squeeze(z_rotated)
             z_rotated_compare = np.dot(z_rotated, z_rotated.T)
-            row_sum = np.sum(z_rotated_compare, axis=1)
-            mask = np.where(
-                np.sign(z_rotated_compare[:, 0]) != np.sign(row_sum), False, True)
 
-            if np.any(mask == False):
-                print("Aruco Marker flipped. Discarding")
-            transforms_rot = transforms_rot[mask]
-            transforms_trans = transforms_trans[mask]
+            col_avg = np.average(z_rotated_compare, axis=0)
+            outlier = np.argmin(col_avg)
 
-        transforms_rot = np.array(transforms_rot)
-        transforms_trans = np.array(transforms_trans)
+            transforms_rot = np.delete(transforms_rot, outlier, axis=0)
+            transforms_trans = np.delete(transforms_trans, outlier, axis=0)
 
-        avg_rot = utils.average_quaternions(transforms_rot)
-        avg_trans = np.average(transforms_trans, axis=0)
+        if len(transforms_rot) > 1:
+            transforms_rot = np.array(transforms_rot)
+            transforms_trans = np.array(transforms_trans)
+
+            avg_rot = utils.average_quaternions(transforms_rot)
+            avg_trans = np.average(transforms_trans, axis=0)
+        else:
+            avg_rot = transforms_rot[0]
+            avg_trans = transforms_trans[0]
 
         obj_transform = Pose()
         
