@@ -13,7 +13,7 @@ from sensor_msgs.msg import CameraInfo
 from geometry_msgs.msg import Pose, PoseArray, TransformStamped
 from cv_bridge import CvBridge, CvBridgeError
 
-from aruco_detect.srv import ArucoPoseEstimate, ArucoPoseEstimateResponse
+from aruco_detect.srv import ArucoPoseEstimate, ArucoPoseEstimateResponse, ArucoPoseEstimateRequest
 
 import cv2.aruco as aruco
 
@@ -48,11 +48,11 @@ class ArucoDetection(object):
         """
         Aruco detection class.
         """
-
-
+        # CvBridge to convert ROS image to OpenCV image
         self.bridge = CvBridge()
+
         # Get params
-        self.marker_transform_file = kwargs.get('marker_transform_file', None)
+        self.marker_transform_file = kwargs.get('aruco_transforms', None)
         self.marker_type = kwargs.get('aruco_type', 'DICT_6X6_100')
         self.marker_size = kwargs.get('aruco_length', 0.05)
         self.main_marker_id = kwargs.get('main_marker_id', 0)
@@ -77,8 +77,10 @@ class ArucoDetection(object):
             except:
                 ValueError("Invalid marker transform file")
         #--------------------------------#
+        rospy.logerr(self.marker_transform_file)
+        rospy.logerr(self.marker_transforms)
         rospy.loginfo("Aruco detection service ready.")
-
+        self.aruco_pub = rospy.Publisher("aruco_img", Image, queue_size=10)
 
     def load_marker_transform(self, marker_transform_file):
         """
@@ -94,7 +96,7 @@ class ArucoDetection(object):
         mk_transform = load_unformated['mk_tf_dict'][()]
         rospy.loginfo(" TF between markers successfully loaded from file.")
         return mk_transform
-    
+
     def estimate_pose_cb(self, req):
         """
         Estimate the pose of the object given a request (Image, CameraInfo)
@@ -102,7 +104,8 @@ class ArucoDetection(object):
         Response:
             ArucoPoseEstimateResponse: The estimated pose of the object. Success or failure.
         """
-        image = req.image
+        assert isinstance(req, ArucoPoseEstimateRequest)
+        image = req.img
         camera_info = req.camera_info
         K, D = self.caminfo_to_matrx_dist(camera_info)
 
@@ -113,15 +116,15 @@ class ArucoDetection(object):
 
         # Detect markers
         output_img, marker_pose_list, detected_id_list = self.detect_aruco(color_img, K, D)
-        
+
         estimated_pose = self.calculate_transform(self.main_marker_id, marker_pose_list, detected_id_list)
 
         response = ArucoPoseEstimateResponse()
         if estimated_pose is None:
-            response.success = False
+            response.success.data = False
         else:
-            response.success = True
-            response.pose = estimated_pose
+            response.success.data = True
+            response.aruco_pose = estimated_pose
 
         return response
 
@@ -266,7 +269,6 @@ class ArucoDetection(object):
                 else:
                     rospy.logwarn("Unknown Aruco marker present.")
                     continue
-
         transforms_rot = np.array(transforms_rot)
         transforms_trans = np.array(transforms_trans)
 
@@ -298,12 +300,10 @@ class ArucoDetection(object):
             avg_trans = transforms_trans[0]
 
         obj_transform = Pose()
-        
-        if self.aruco_update_rate >= 1:
-            obj_transform = utils.quat_trans_to_pose(avg_trans, avg_rot)
-            return obj_transform
-        
-        
+
+        obj_transform = utils.quat_trans_to_pose(avg_trans, avg_rot)
+        return obj_transform
+
 
 if __name__ == "__main__":
     # Initialize the node
@@ -312,7 +312,7 @@ if __name__ == "__main__":
 
     aruco_type = rospy.get_param("~aruco_type", "DICT_6X6_100")
     aruco_length = rospy.get_param("~aruco_length", "0.0489")
-    aruco_transforms = rospy.get_param("~aruco_transforms", None)
+    aruco_transforms = rospy.get_param("~aruco_transforms")
     aruco_main_marker_id = rospy.get_param("~aruco_main_marker_id")
 
     params = {"aruco_type": aruco_type,
