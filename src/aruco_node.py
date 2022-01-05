@@ -56,7 +56,7 @@ class ImageConverter(object):
             marker_size {float}: The size of the ArUco marker in m.
             marker_transform_file {string}: The file containing the transformation matrixes between markers and desired pose.
             aruco_update_rate {float}: The rate at which the ArUco markers are updated.
-            aruco_object_id {string}: The name of the object. A TF frame with that name will be broadcasted.
+            aruco_obj_id {string}: The name of the object. A TF frame with that name will be broadcasted.
             save_dir {string}: The directory where the marker_transform_file will be saved after callibration.
             camera_img_topic {string}: The topic where the camera image is published.
             camera_info_topic {string}: The topic where the camera info is published.
@@ -68,7 +68,7 @@ class ImageConverter(object):
         self.marker_size = kwargs["aruco_length"]
         self.marker_transform_file = kwargs["aruco_transforms"]
         self.aruco_update_rate = kwargs["aruco_update_rate"]
-        self.aruco_object_id = kwargs["aruco_obj_id"]
+        self.aruco_obj_id = kwargs["aruco_obj_id"]
         self.camera_img_topic = kwargs["camera_img_topic"]
         self.camera_info_topic = kwargs["camera_info_topic"]
         self.camera_frame_id = kwargs["camera_frame_id"]
@@ -329,7 +329,7 @@ class ImageConverter(object):
         object_tf = TransformStamped()
         object_tf.header.stamp = rospy.Time.now()
         object_tf.header.frame_id = self.camera_frame_id
-        object_tf.child_frame_id = self.aruco_object_id
+        object_tf.child_frame_id = self.aruco_obj_id
         
 
         
