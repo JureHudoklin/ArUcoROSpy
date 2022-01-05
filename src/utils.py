@@ -86,7 +86,7 @@ def average_quaternions(quat_list,weights = None):
     elif len(quat_list) == 1:
         return quat_list[0]
     else:
-        #quat_list = np.roll(np.array(quat_list),1,axis=1)
+        quat_list = np.roll(np.array(quat_list),1,axis=1)
         if not weights is None:
             weights = np.array(weights)
             weights = weights / np.sum(weights)
@@ -96,7 +96,6 @@ def average_quaternions(quat_list,weights = None):
         w, v = np.linalg.eigh(QQ_t)
         max_eigen = np.argmax(w)
         max_eigen_vect = v[:, max_eigen]
-        #max_eigen_vect = np.roll(max_eigen_vect, -1)
+        max_eigen_vect = np.roll(max_eigen_vect, -1)
         max_eigen_vect = max_eigen_vect
-        #print(max_eigen_vect, "Average QUATERNION")
-        return max_eigen_vect
+        return normalize_quaternion(max_eigen_vect)
